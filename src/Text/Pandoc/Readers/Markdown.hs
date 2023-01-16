@@ -1848,12 +1848,13 @@ wikilink =
 
 link :: PandocMonad m => MarkdownParser m (F Inlines)
 link = try $ do
+  pos <- getPosition
   st <- getState
   guard $ stateAllowLinks st
   setState $ st{ stateAllowLinks = False }
   (lab,raw) <- reference
   setState $ st{ stateAllowLinks = True }
-  regLink B.linkWith lab <|> referenceLink B.linkWith (lab,raw)
+  regLink B.linkWith lab <|> referenceLink pos B.linkWith (lab,raw)
 
 bracketedSpan :: PandocMonad m => MarkdownParser m (F Inlines)
 bracketedSpan = do
@@ -1905,10 +1906,11 @@ regLink constructor lab = try $ do
 
 -- a link like [this][ref] or [this][] or [this]
 referenceLink :: PandocMonad m
-              => (Attr -> Text -> Text -> Inlines -> Inlines)
+              => SourcePos
+              -> (Attr -> Text -> Text -> Inlines -> Inlines)
               -> (F Inlines, Text)
               -> MarkdownParser m (F Inlines)
-referenceLink constructor (lab, raw) = do
+referenceLink pos constructor (lab, raw) = do
   sp <- (True <$ lookAhead (char ' ')) <|> return False
   (_,raw') <- option (mempty, "") $
       lookAhead (try (do guardEnabled Ext_citations
@@ -1925,6 +1927,7 @@ referenceLink constructor (lab, raw) = do
   implicitHeaderRefs <- option False $
                          True <$ guardEnabled Ext_implicit_header_references
   let makeFallback = do
+       logMessage $ MissingLinkReference key pos
        parsedRaw' <- parsedRaw
        fallback' <- fallback
        return $ B.str "[" <> fallback' <> B.str "]" <>
@@ -1994,6 +1997,7 @@ rebasePath pos path = do
 
 image :: PandocMonad m => MarkdownParser m (F Inlines)
 image = try $ do
+  pos <- getPosition
   char '!'
   (lab,raw) <- reference
   defaultExt <- getOption readerDefaultImageExtension
@@ -2002,10 +2006,11 @@ image = try $ do
             "" -> B.imageWith attr' (T.pack $ addExtension (T.unpack src)
                                             $ T.unpack defaultExt)
             _  -> B.imageWith attr' src
-  regLink constructor lab <|> referenceLink constructor (lab,raw)
+  regLink constructor lab <|> referenceLink pos constructor (lab,raw)
 
 note :: PandocMonad m => MarkdownParser m (F Inlines)
 note = try $ do
+  pos <- getPosition
   guardEnabled Ext_footnotes
   ref <- noteMarker
   updateState $ \st -> st{ stateNoteRefs = Set.insert ref (stateNoteRefs st)
@@ -2014,7 +2019,9 @@ note = try $ do
   return $ do
     notes <- asksF stateNotes'
     case M.lookup ref notes of
-        Nothing       -> return $ B.str $ "[^" <> ref <> "]"
+        Nothing -> do
+          logMessage $ MissingNoteReference ref pos
+          return $ B.str $ "[^" <> ref <> "]"
         Just (_pos, contents) -> do
           st <- askF
           -- process the note in a context that doesn't resolve
@@ -2191,6 +2198,7 @@ textualCite = try $ do
                       , citationHash    = 0
                       }
   (do -- parse [braced] material after author-in-text cite
+      pos <- getPosition
       (cs, raw) <- withRaw $
                         (fmap (first:) <$> try (spnl *> normalCite))
                     <|> bareloc first
@@ -2198,7 +2206,7 @@ textualCite = try $ do
           spc | T.null spaces' = mempty
               | otherwise      = B.space
       lab <- parseFromString' inlines $ dropBrackets raw'
-      fallback <- referenceLink B.linkWith (lab,raw')
+      fallback <- referenceLink pos B.linkWith (lab,raw')
       -- undo any incrementing of stateNoteNumber from last step:
       updateState $ \st -> st{ stateNoteNumber = noteNum }
       return $ do

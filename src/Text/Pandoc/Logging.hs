@@ -55,7 +55,9 @@ data LogMessage =
     SkippedContent Text SourcePos
   | IgnoredElement Text
   | DuplicateLinkReference Text SourcePos
+  | MissingLinkReference Text SourcePos
   | DuplicateNoteReference Text SourcePos
+  | MissingNoteReference Text SourcePos
   | NoteDefinedButNotUsed Text SourcePos
   | DuplicateIdentifier Text SourcePos
   | ReferenceNotFound Text SourcePos
@@ -117,12 +119,22 @@ instance ToJSON LogMessage where
             "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
+      MissingLinkReference s pos ->
+           ["contents" .= s,
+            "source" .= sourceName pos,
+            "line" .= toJSON (sourceLine pos),
+            "column" .= toJSON (sourceColumn pos)]
       NoteDefinedButNotUsed s pos ->
            ["key" .= s,
             "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       DuplicateNoteReference s pos ->
+           ["contents" .= s,
+            "source" .= sourceName pos,
+            "line" .= toJSON (sourceLine pos),
+            "column" .= toJSON (sourceColumn pos)]
+      MissingNoteReference s pos ->
            ["contents" .= s,
             "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
@@ -269,8 +281,12 @@ showLogMessage msg =
          "Ignored element " <> s
        DuplicateLinkReference s pos ->
          "Duplicate link reference '" <> s <> "' at " <> showPos pos
+       MissingLinkReference s pos ->
+         "No link reference matches key '" <> s <> "' at " <> showPos pos
        DuplicateNoteReference s pos ->
          "Duplicate note reference '" <> s <> "' at " <> showPos pos
+       MissingNoteReference s pos ->
+         "No footnote reference matches key '" <> s <> "' at " <> showPos pos
        NoteDefinedButNotUsed s pos ->
          "Note with key '" <> s <> "' defined at " <> showPos pos <>
            " but not used."
@@ -382,7 +398,9 @@ messageVerbosity msg =
        SkippedContent{}              -> INFO
        IgnoredElement{}              -> INFO
        DuplicateLinkReference{}      -> WARNING
+       MissingLinkReference{}        -> WARNING
        DuplicateNoteReference{}      -> WARNING
+       MissingNoteReference{}        -> WARNING
        NoteDefinedButNotUsed{}       -> WARNING
        DuplicateIdentifier{}         -> WARNING
        ReferenceNotFound{}           -> WARNING
